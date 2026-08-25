@@ -1,70 +1,39 @@
-name: ZIP Otomatik Ac ve APK Derle
-
-on:
-  push:
-    branches:
-      - main
-  workflow_dispatch:
+name: Otomatik Proje Iskeleti ve APK Derleme
+on: [push, workflow_dispatch]
 
 jobs:
-  unzip-ve-derle:
+  build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-
     steps:
       - name: Depoyu Klonla
         uses: actions/checkout@v4
 
-      - name: ZIP Dosyasini Ac ve Klasor Yapisini Kur
+      - name: Yapıyı Kur ve Kaynakları Taşı
         run: |
-          # 1. ZIP dosyasını geçici bir yere aç
-          mkdir -p gecici_acilis
-          unzip -o *.zip -d gecici_acilis
-          
-          # 2. Gereksiz ZIP dosyasını sil
-          rm *.zip
-          
-          # 3. Dosyaları ana dizine taşı (Klasör içindeyse dışarı çıkar)
-          # build.gradle dosyasının olduğu yeri bul ve orayı ana merkez yap
-          PROJE_YOLU=$(find gecici_acilis -name "build.gradle" -o -name "build.gradle.kts" | head -n 1 | xargs dirname)
-          
-          if [ -z "$PROJE_YOLU" ]; then
-             echo "UYARI: ZIP içinde hazır proje bulunamadı, dosyalar manuel taşınıyor."
-             cp -r gecici_acilis/* .
-          else
-             cp -r "$PROJE_YOLU"/* .
-          fi
-          
-          rm -rf gecici_acilis
+          mkdir -p app/src/main/java app/src/main/res
+          echo "include ':app'" > settings.gradle
+          # Temel build.gradle dosyalarını oluştur (Android Gradle Plugin 8.2.0)
+          echo 'buildscript { repositories { google(); mavenCentral() } dependencies { classpath "com.android.tools.build:gradle:8.2.0" } }' > build.gradle
+          echo 'allprojects { repositories { google(); mavenCentral() } }' >> build.gradle
+          echo "apply plugin: 'com.android.application'
+          android {
+              compileSdk 34
+              namespace 'com.example.app'
+              defaultConfig { minSdk 24; targetSdk 34; versionCode 1; versionName '1.0' }
+          }" > app/build.gradle
+          # Dosyaları taşı (kaynak klasörünüzü kontrol edin)
+          cp -r kaynak/java/* app/src/main/java/ 2>/dev/null || true
+          cp -r kaynak/res/* app/src/main/res/ 2>/dev/null || true
+          cp kaynak/AndroidManifest.xml app/src/main/ 2>/dev/null || true
 
-      - name: Java Kurulumu
+      - name: Java 17 Kur
         uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
+        with: { distribution: 'temurin', java-version: '17' }
 
-      - name: APK Derlemeyi Dene
-        run: |
-          # Eğer gradlew dosyası yoksa temel bir tane oluşturmayı dene veya sistem gradle'ı kullan
-          chmod +x gradlew || true
-          if [ -f "./gradlew" ]; then
-            ./gradlew assembleDebug
-          else
-            gradle assembleDebug
-          fi
+      - name: APK Derle
+        run: gradle assembleDebug --project-dir .
 
-      - name: Degisiklikleri Kaydet (Klasor Olarak Gorunsun)
-        run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-          git add .
-          git commit -m "ZIP içeriği klasörlere çıkartıldı" || exit 0
-          git push origin main
-
-      - name: APK Dosyasini Yukle
+      - name: APK Yükle
         uses: actions/upload-artifact@v4
-        with:
-          name: Uygulama-APK
-          path: "**/build/outputs/apk/debug/*.apk"
-          
+        with: { name: 'Uretilen-APK', path: 'app/build/outputs/apk/debug/*.apk' }
+        
