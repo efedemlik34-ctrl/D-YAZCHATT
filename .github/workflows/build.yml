@@ -1,4 +1,4 @@
-name: Satin Almasiz APK Derleme ve Yukleme
+name: Satin Almasiz Kesin APK Derleme ve Yukleme
 on: [push, workflow_dispatch]
 
 jobs:
@@ -19,18 +19,18 @@ jobs:
 
       - name: Proje Iskeletini Kur ve Satin Almayi Iptal Et
         run: |
-          # 1. Klasör mimarisini hazırla
+          # 1. Klasör mimarisini tertemiz hazırla
           mkdir -p app/src/main/java app/src/main/res
           echo "include ':app'" > settings.gradle
 
-          # 2. KÖKTEN ÇÖZÜM: AndroidX desteğini aktif eden gradle.properties dosyasını sıfırdan yazıyoruz
+          # 2. AndroidX desteğini aktif et
           cat << 'EOF' > gradle.properties
           android.useAndroidX=true
           android.enableJetifier=true
           org.gradle.jvmargs=-Xmx2048m -XX:MaxMetaspaceSize=512m
           EOF
 
-          # 3. Settings.gradle depo tanımları
+          # 3. Settings.gradle yapılandırması
           cat << 'EOF' > settings.gradle
           pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
           dependencyResolutionManagement {
@@ -46,7 +46,7 @@ jobs:
           plugins { id 'com.android.application' version '8.2.2' apply false }
           EOF
 
-          # 5. App build.gradle (Satin alma kutuphanesini haric tutar)
+          # 5. App build.gradle (Satin alma kutuphanesiz temel yapı)
           cat << 'EOF' > app/build.gradle
           plugins { id 'com.android.application' }
           android {
@@ -75,7 +75,6 @@ jobs:
           # 6. Java kodlarini tasi ve premium moduna zorla
           find . -maxdepth 5 -path "*/java/*" -o -path "*/sources/*" | while read -r dosya; do
               if [ -f "$dosya" ] && [[ "$dosya" == *java ]]; then
-                  # Kod icindeki satin alma kontrollerini etkisizlestir
                   sed -i 's/billingClient/System.out.println/g' "$dosya" || true
                   sed -i 's/launchBillingFlow/toString/g' "$dosya" || true
                   
@@ -88,10 +87,34 @@ jobs:
               fi
           done
 
-          # 7. Res ve Manifest dosyalarini tasi
-          find . -maxdepth 5 -type d -name "res" -exec cp -r {}/* app/src/main/res/ \; 2>/dev/null || true
+          # 7. Res (Arayüz) dosyalarını taşı
+          find . -maxdepth 5 -type d -name "res" | while read -r res_dizin; do
+              if [[ "$res_dizin" != *"app/src/main"* ]]; then
+                  cp -r "$res_dizin"/* app/src/main/res/ 2>/dev/null || true
+              fi
+          done
+
+          # 8. MANİFEST ÇAKIŞMASINI ÇÖZME: Depodaki orijinal Manifest dosyasını bul ve temizce taşı
+          # Yapay zeka tarafından sonradan üretilen sahte manifestlerin oluşmasını tamamen engelliyoruz
           MANIFEST_YOLU=$(find . -name "AndroidManifest.xml" ! -path "*/app/*" | head -n 1)
-          if [ -n "$MANIFEST_YOLU" ]; then cp "$MANIFEST_YOLU" app/src/main/AndroidManifest.xml; fi
+          if [ -n "$MANIFEST_YOLU" ]; then
+              cp "$MANIFEST_YOLU" app/src/main/AndroidManifest.xml
+              echo "Orijinal Manifest başarıyla taşındı: $MANIFEST_YOLU"
+          else
+              # Eğer hiç manifest yoksa, hata vermemesi için en temel şablonu oluştur
+              cat << 'EOF' > app/src/main/AndroidManifest.xml
+              <manifest xmlns:android="http://android.com">
+                  <application android:allowBackup="true" android:label="Uygulama" android:theme="@style/Theme.AppCompat.Light.NoActionBar">
+                      <activity android:name="com.example.otomatikuygulama.MainActivity" android:exported="true">
+                          <intent-filter>
+                              <action android:name="android.intent.action.MAIN" />
+                              <category android:name="android.intent.category.LAUNCHER" />
+                          </intent-filter>
+                      </activity>
+                  </application>
+              </manifest>
+          EOF
+          fi
 
       - name: APK Derlemesini Baslat
         run: gradle assembleDebug --project-dir .
