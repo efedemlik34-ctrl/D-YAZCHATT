@@ -1,146 +1,34 @@
-name: Otomatik Proje Iskeleti ve APK Derleme
-on: [push, workflow_dispatch]
+name: ZIP Dosyasini Otomatik Klasore Cikar
+
+on:
+  push:
+    branches:
+      - main  # Eger ana dalinizin adı master ise burayi master yapın
+  workflow_dispatch: # Manuel tetikleme butonu ekler
 
 jobs:
-  build:
+  unzip-islemi:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # Dosyaları klasöre yazabilmesi için şarttır
+
     steps:
       - name: Depoyu Klonla
         uses: actions/checkout@v4
 
-      - name: Yapıyı Kur ve Kaynakları Taşı
+      - name: ZIP Dosyasini Klasorlere Ayir
         run: |
-          # 1. Standart Android klasör mimarisini inşa ediyoruz
-          mkdir -p app/src/main/java app/src/main/res
+          # Depodaki .zip dosyasını bulur ve tamamen dışarı çıkarır
+          unzip -o *.zip
           
-          # 2. settings.gradle dosyasını yapılandırıyoruz
-          cat << 'EOF' > settings.gradle
-          pluginManagement {
-              repositories {
-                  google()
-                  mavenCentral()
-                  gradlePluginPortal()
-              }
-          }
-          dependencyResolutionManagement {
-              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
-              repositories {
-                  google()
-                  mavenCentral()
-              }
-          }
-          rootProject.name = "OtomatikAndroidProjesi"
-          include ':app'
-          EOF
+          # Deponun ana sayfasında kalabalık etmesin diye orijinal ZIP'i siliyoruz
+          rm *.zip
 
-          # 3. Ana build.gradle dosyasını oluşturuyoruz
-          cat << 'EOF' > build.gradle
-          plugins {
-              id 'com.android.application' version '8.2.2' apply false
-          }
-          EOF
-
-          # 4. app/build.gradle oluşturuluyor
-          cat << 'EOF' > app/build.gradle
-          plugins {
-              id 'com.android.application'
-          }
-
-          android {
-              namespace 'com.example.otomatikuygulama'
-              compileSdk 34
-
-              defaultConfig {
-                  applicationId "com.example.otomatikuygulama"
-                  minSdk 24
-                  targetSdk 34
-                  versionCode 1
-                  versionName "1.0"
-              }
-
-              buildTypes {
-                  release {
-                      minifyEnabled false
-                  }
-              }
-              compileOptions {
-                  sourceCompatibility JavaVersion.VERSION_17
-                  targetCompatibility JavaVersion.VERSION_17
-              }
-          }
-
-          dependencies {
-              // Tersine mühendislikle açılan uygulamaların kullandığı TÜM kritik temel kütüphaneleri ekliyoruz
-              implementation 'androidx.appcompat:appcompat:1.6.1'
-              implementation 'com.google.android.material:material:1.11.0'
-              implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
-              implementation 'androidx.core:core-ktx:1.12.0'
-              implementation 'androidx.fragment:fragment:1.6.2'
-              implementation 'androidx.activity:activity:1.8.2'
-          }
-          EOF
-
-          echo "=== DOSYALAR TAŞINIYOR ==="
-          # Java kaynak kodlarını tarayıp orijinal paket yollarına göre diziyoruz
-          find . -maxdepth 5 -path "*/java/*" -o -path "*/sources/*" | while read -r dosya; do
-              if [ -f "$dosya" ] && [[ "$dosya" == *.java ]]; then
-                  PAKET_SATIRI=$(grep -E "^package " "$dosya" | head -n 1 || true)
-                  if [ -n "$PAKET_SATIRI" ]; then
-                      PAKET_YOLU=$(echo "$PAKET_SATIRI" | sed 's/package //' | sed 's/;//' | tr '.' '/' | tr -d '\r' | xargs)
-                      mkdir -p "app/src/main/java/$PAKET_YOLU"
-                      cp "$dosya" "app/src/main/java/$PAKET_YOLU/"
-                  fi
-              fi
-          done
-
-          # Res (görsel ve XML arayüz) klasörlerini taşıyoruz
-          find . -maxdepth 5 -type d -name "res" | while read -r res_dizin; do
-              cp -r "$res_dizin"/* app/src/main/res/ 2>/dev/null || true
-          done
-
-          # Orijinal Manifest dosyasını koruyoruz, yoksa temel şablon yazıyoruz
-          MANIFEST_YOLU=$(find . -name "AndroidManifest.xml" ! -path "*/app/*" | head -n 1)
-          if [ -n "$MANIFEST_YOLU" ]; then
-              cp "$MANIFEST_YOLU" app/src/main/AndroidManifest.xml
-          else
-              cat << 'EOF' > app/src/main/AndroidManifest.xml
-              <manifest xmlns:android="http://android.com">
-                  <application
-                      android:allowBackup="true"
-                      android:label="Otomatik Uygulama"
-                      android:theme="@style/Theme.AppCompat.Light.NoActionBar">
-                      <activity android:name=".MainActivity" android:exported="true">
-                          <intent-filter>
-                              <action android:name="android.intent.action.MAIN" />
-                              <category android:name="android.intent.category.LAUNCHER" />
-                          </intent-filter>
-                      </activity>
-                  </application>
-              </manifest>
-          EOF
-          fi
-
-      - name: Java 17 Kur
-        uses: actions/setup-java@v4
-        with: 
-          distribution: 'temurin'
-          java-version: '17'
-
-      - name: APK Derlemesini Başlat (Gelişmiş Hata Süzücü Mod)
+      - name: Klasorleri Depoya Geri Yukle
         run: |
-          # --stacktrace ve --info parametreleri ekleyerek hatanın hangi Java satırında olduğunu rapora yazdırıyoruz
-          gradle assembleDebug --project-dir . --stacktrace --info > detayli_hata_raporu.txt 2>&1 || true
-
-      - name: Kırık Dosya Raporunu ve APK Durumunu Dışarı Aktar
-        uses: actions/upload-artifact@v4
-        with: 
-          name: 'Derleme-Hata-Ve-Sonuc-Raporu'
-          path: detayli_hata_raporu.txt
-
-      - name: Eger APK Başarıyla Üretildiyse Yükle
-        uses: actions/upload-artifact@v4
-        with: 
-          name: 'Uretilen-APK'
-          path: 'app/build/outputs/apk/debug/*.apk'
-          if-no-files-found: ignore
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add .
+          git commit -m "Build: ZIP icerigi basariyla klasorlere cikarildi" || exit 0
+          git push origin main
           
