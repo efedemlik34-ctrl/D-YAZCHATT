@@ -10,30 +10,113 @@ jobs:
 
       - name: Yapıyı Kur ve Kaynakları Taşı
         run: |
+          # 1. Standart Android klasör mimarisini inşa ediyoruz
           mkdir -p app/src/main/java app/src/main/res
+          
+          # 2. settings.gradle dosyasını oluşturuyoruz
           echo "include ':app'" > settings.gradle
-          # Temel build.gradle dosyalarını oluştur (Android Gradle Plugin 8.2.0)
-          echo 'buildscript { repositories { google(); mavenCentral() } dependencies { classpath "com.android.tools.build:gradle:8.2.0" } }' > build.gradle
-          echo 'allprojects { repositories { google(); mavenCentral() } }' >> build.gradle
-          echo "apply plugin: 'com.android.application'
+
+          # 3. Ana build.gradle dosyasını yeni nesil Gradle kurallarına göre sıfırdan yazıyoruz
+          cat << 'EOF' > build.gradle
+          // Root build.gradle - Plugins block standardına uygun hale getirildi
+          plugins {
+              id 'com.android.application' version '8.2.2' apply false
+          }
+          EOF
+
+          # 4. app/build.gradle (Uygulama ayarları ve SDK tanımları) oluşturuluyor
+          cat << 'EOF' > app/build.gradle
+          plugins {
+              id 'com.android.application'
+          }
+
           android {
+              // Paket adını (namespace) decompile edilen standart yapıya uygun ayarlıyoruz
+              namespace 'com.example.otomatikuygulama'
               compileSdk 34
-              namespace 'com.example.app'
-              defaultConfig { minSdk 24; targetSdk 34; versionCode 1; versionName '1.0' }
-          }" > app/build.gradle
-          # Dosyaları taşı (kaynak klasörünüzü kontrol edin)
-          cp -r kaynak/java/* app/src/main/java/ 2>/dev/null || true
-          cp -r kaynak/res/* app/src/main/res/ 2>/dev/null || true
-          cp kaynak/AndroidManifest.xml app/src/main/ 2>/dev/null || true
+
+              defaultConfig {
+                  applicationId "com.example.otomatikuygulama"
+                  minSdk 24
+                  targetSdk 34
+                  versionCode 1
+                  versionName "1.0"
+              }
+
+              buildTypes {
+                  release {
+                      minifyEnabled false
+                  }
+              }
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+          }
+
+          dependencies {
+              // Play Store uygulamalarının ihtiyaç duyduğu en temel Google kütüphaneleri
+              implementation 'androidx.appcompat:appcompat:1.6.1'
+              implementation 'com.google.android.material:material:1.11.0'
+              implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+          }
+          EOF
+
+          echo "=== DOSYALAR TAŞINIYOR ==="
+          # ZIP'ten çıkan klasör isimlerine bakılmaksızın tüm java ve res içeriklerini süzerek taşıyoruz
+          find . -maxdepth 5 -path "*/java/*" -o -path "*/sources/*" | while read -r dosya; do
+              if [ -f "$dosya" ] && [[ "$dosya" == *.java ]]; then
+                  # Paket adlarını koruyarak Java sınıflarını kopyala
+                  PAKET_SATIRI=$(grep -E "^package " "$dosya" | head -n 1 || true)
+                  if [ -n "$PAKET_SATIRI" ]; then
+                      PAKET_YOLU=$(echo "$PAKET_SATIRI" | sed 's/package //' | sed 's/;//' | tr '.' '/' | tr -d '\r' | xargs)
+                      mkdir -p "app/src/main/java/$PAKET_YOLU"
+                      cp "$dosya" "app/src/main/java/$PAKET_YOLU/"
+                  fi
+              fi
+          done
+
+          # Res (görsel, tasarım ve XML) klasörlerini taşıyoruz
+          find . -maxdepth 5 -type d -name "res" | while read -r res_dizin; do
+              cp -r "$res_dizin"/* app/src/main/res/ 2>/dev/null || true
+          done
+
+          # Manifest dosyasını taşıyoruz, yoksa temel bir tane yazıyoruz
+          MANIFEST_YOLU=$(find . -name "AndroidManifest.xml" ! -path "*/app/*" | head -n 1)
+          if [ -n "$MANIFEST_YOLU" ]; then
+              cp "$MANIFEST_YOLU" app/src/main/AndroidManifest.xml
+          else
+              cat << 'EOF' > app/src/main/AndroidManifest.xml
+              <manifest xmlns:android="http://android.com">
+                  <application
+                      android:allowBackup="true"
+                      android:label="Otomatik Uygulama"
+                      android:theme="@style/Theme.AppCompat.Light.NoActionBar">
+                      <activity android:name=".MainActivity" android:exported="true">
+                          <intent-filter>
+                              <action android:name="android.intent.action.MAIN" />
+                              <category android:name="android.intent.category.LAUNCHER" />
+                          </intent-filter>
+                      </activity>
+                  </application>
+              </manifest>
+          EOF
+          fi
 
       - name: Java 17 Kur
         uses: actions/setup-java@v4
-        with: { distribution: 'temurin', java-version: '17' }
+        with: 
+          distribution: 'temurin'
+          java-version: '17'
 
-      - name: APK Derle
-        run: gradle assembleDebug --project-dir .
+      - name: APK Derlemesini Başlat
+        run: |
+          # Projeyi derleme motoruna sokuyoruz
+          gradle assembleDebug --project-dir .
 
-      - name: APK Yükle
+      - name: Üretilen APK Dosyasını Yükle
         uses: actions/upload-artifact@v4
-        with: { name: 'Uretilen-APK', path: 'app/build/outputs/apk/debug/*.apk' }
-        
+        with: 
+          name: 'Uretilen-APK'
+          path: 'app/build/outputs/apk/debug/*.apk'
+          
