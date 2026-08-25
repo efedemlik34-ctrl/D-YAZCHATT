@@ -13,7 +13,7 @@ jobs:
           # 1. Standart Android klasör mimarisini inşa ediyoruz
           mkdir -p app/src/main/java app/src/main/res
           
-          # 2. settings.gradle dosyasını eklenti depolarını (pluginManagement) içerecek şekilde sıfırdan yazıyoruz
+          # 2. settings.gradle dosyasını yapılandırıyoruz
           cat << 'EOF' > settings.gradle
           pluginManagement {
               repositories {
@@ -33,14 +33,14 @@ jobs:
           include ':app'
           EOF
 
-          # 3. Ana build.gradle dosyasını basitleştiriyoruz (Eklenti yönetimi artık settings.gradle tarafında doğrulanacak)
+          # 3. Ana build.gradle dosyasını oluşturuyoruz
           cat << 'EOF' > build.gradle
           plugins {
               id 'com.android.application' version '8.2.2' apply false
           }
           EOF
 
-          # 4. app/build.gradle (Uygulama ayarları ve kütüphaneler) oluşturuluyor
+          # 4. app/build.gradle oluşturuluyor
           cat << 'EOF' > app/build.gradle
           plugins {
               id 'com.android.application'
@@ -70,9 +70,13 @@ jobs:
           }
 
           dependencies {
+              // Tersine mühendislikle açılan uygulamaların kullandığı TÜM kritik temel kütüphaneleri ekliyoruz
               implementation 'androidx.appcompat:appcompat:1.6.1'
               implementation 'com.google.android.material:material:1.11.0'
               implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+              implementation 'androidx.core:core-ktx:1.12.0'
+              implementation 'androidx.fragment:fragment:1.6.2'
+              implementation 'androidx.activity:activity:1.8.2'
           }
           EOF
 
@@ -122,13 +126,21 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: APK Derlemesini Başlat
+      - name: APK Derlemesini Başlat (Gelişmiş Hata Süzücü Mod)
         run: |
-          gradle assembleDebug --project-dir .
+          # --stacktrace ve --info parametreleri ekleyerek hatanın hangi Java satırında olduğunu rapora yazdırıyoruz
+          gradle assembleDebug --project-dir . --stacktrace --info > detayli_hata_raporu.txt 2>&1 || true
 
-      - name: Üretilen APK Dosyasını Yükle
+      - name: Kırık Dosya Raporunu ve APK Durumunu Dışarı Aktar
+        uses: actions/upload-artifact@v4
+        with: 
+          name: 'Derleme-Hata-Ve-Sonuc-Raporu'
+          path: detayli_hata_raporu.txt
+
+      - name: Eger APK Başarıyla Üretildiyse Yükle
         uses: actions/upload-artifact@v4
         with: 
           name: 'Uretilen-APK'
           path: 'app/build/outputs/apk/debug/*.apk'
+          if-no-files-found: ignore
           
