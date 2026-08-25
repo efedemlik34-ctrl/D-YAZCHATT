@@ -1,0 +1,70 @@
+name: ZIP Otomatik Ac ve APK Derle
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  unzip-ve-derle:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Depoyu Klonla
+        uses: actions/checkout@v4
+
+      - name: ZIP Dosyasini Ac ve Klasor Yapisini Kur
+        run: |
+          # 1. ZIP dosyasını geçici bir yere aç
+          mkdir -p gecici_acilis
+          unzip -o *.zip -d gecici_acilis
+          
+          # 2. Gereksiz ZIP dosyasını sil
+          rm *.zip
+          
+          # 3. Dosyaları ana dizine taşı (Klasör içindeyse dışarı çıkar)
+          # build.gradle dosyasının olduğu yeri bul ve orayı ana merkez yap
+          PROJE_YOLU=$(find gecici_acilis -name "build.gradle" -o -name "build.gradle.kts" | head -n 1 | xargs dirname)
+          
+          if [ -z "$PROJE_YOLU" ]; then
+             echo "UYARI: ZIP içinde hazır proje bulunamadı, dosyalar manuel taşınıyor."
+             cp -r gecici_acilis/* .
+          else
+             cp -r "$PROJE_YOLU"/* .
+          fi
+          
+          rm -rf gecici_acilis
+
+      - name: Java Kurulumu
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: APK Derlemeyi Dene
+        run: |
+          # Eğer gradlew dosyası yoksa temel bir tane oluşturmayı dene veya sistem gradle'ı kullan
+          chmod +x gradlew || true
+          if [ -f "./gradlew" ]; then
+            ./gradlew assembleDebug
+          else
+            gradle assembleDebug
+          fi
+
+      - name: Degisiklikleri Kaydet (Klasor Olarak Gorunsun)
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add .
+          git commit -m "ZIP içeriği klasörlere çıkartıldı" || exit 0
+          git push origin main
+
+      - name: APK Dosyasini Yukle
+        uses: actions/upload-artifact@v4
+        with:
+          name: Uygulama-APK
+          path: "**/build/outputs/apk/debug/*.apk"
+          
