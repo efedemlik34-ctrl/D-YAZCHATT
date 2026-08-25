@@ -13,25 +13,40 @@ jobs:
           # 1. Standart Android klasör mimarisini inşa ediyoruz
           mkdir -p app/src/main/java app/src/main/res
           
-          # 2. settings.gradle dosyasını oluşturuyoruz
-          echo "include ':app'" > settings.gradle
+          # 2. settings.gradle dosyasını eklenti depolarını (pluginManagement) içerecek şekilde sıfırdan yazıyoruz
+          cat << 'EOF' > settings.gradle
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = "OtomatikAndroidProjesi"
+          include ':app'
+          EOF
 
-          # 3. Ana build.gradle dosyasını yeni nesil Gradle kurallarına göre sıfırdan yazıyoruz
+          # 3. Ana build.gradle dosyasını basitleştiriyoruz (Eklenti yönetimi artık settings.gradle tarafında doğrulanacak)
           cat << 'EOF' > build.gradle
-          // Root build.gradle - Plugins block standardına uygun hale getirildi
           plugins {
               id 'com.android.application' version '8.2.2' apply false
           }
           EOF
 
-          # 4. app/build.gradle (Uygulama ayarları ve SDK tanımları) oluşturuluyor
+          # 4. app/build.gradle (Uygulama ayarları ve kütüphaneler) oluşturuluyor
           cat << 'EOF' > app/build.gradle
           plugins {
               id 'com.android.application'
           }
 
           android {
-              // Paket adını (namespace) decompile edilen standart yapıya uygun ayarlıyoruz
               namespace 'com.example.otomatikuygulama'
               compileSdk 34
 
@@ -55,7 +70,6 @@ jobs:
           }
 
           dependencies {
-              // Play Store uygulamalarının ihtiyaç duyduğu en temel Google kütüphaneleri
               implementation 'androidx.appcompat:appcompat:1.6.1'
               implementation 'com.google.android.material:material:1.11.0'
               implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
@@ -63,10 +77,9 @@ jobs:
           EOF
 
           echo "=== DOSYALAR TAŞINIYOR ==="
-          # ZIP'ten çıkan klasör isimlerine bakılmaksızın tüm java ve res içeriklerini süzerek taşıyoruz
+          # Java kaynak kodlarını tarayıp orijinal paket yollarına göre diziyoruz
           find . -maxdepth 5 -path "*/java/*" -o -path "*/sources/*" | while read -r dosya; do
               if [ -f "$dosya" ] && [[ "$dosya" == *.java ]]; then
-                  # Paket adlarını koruyarak Java sınıflarını kopyala
                   PAKET_SATIRI=$(grep -E "^package " "$dosya" | head -n 1 || true)
                   if [ -n "$PAKET_SATIRI" ]; then
                       PAKET_YOLU=$(echo "$PAKET_SATIRI" | sed 's/package //' | sed 's/;//' | tr '.' '/' | tr -d '\r' | xargs)
@@ -76,12 +89,12 @@ jobs:
               fi
           done
 
-          # Res (görsel, tasarım ve XML) klasörlerini taşıyoruz
+          # Res (görsel ve XML arayüz) klasörlerini taşıyoruz
           find . -maxdepth 5 -type d -name "res" | while read -r res_dizin; do
               cp -r "$res_dizin"/* app/src/main/res/ 2>/dev/null || true
           done
 
-          # Manifest dosyasını taşıyoruz, yoksa temel bir tane yazıyoruz
+          # Orijinal Manifest dosyasını koruyoruz, yoksa temel şablon yazıyoruz
           MANIFEST_YOLU=$(find . -name "AndroidManifest.xml" ! -path "*/app/*" | head -n 1)
           if [ -n "$MANIFEST_YOLU" ]; then
               cp "$MANIFEST_YOLU" app/src/main/AndroidManifest.xml
@@ -111,7 +124,6 @@ jobs:
 
       - name: APK Derlemesini Başlat
         run: |
-          # Projeyi derleme motoruna sokuyoruz
           gradle assembleDebug --project-dir .
 
       - name: Üretilen APK Dosyasını Yükle
