@@ -17,13 +17,13 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Proje Iskeletini Kur ve Satin Almayi Iptal Et
+      - name: Proje Iskeletini Kur ve Kaynaklari Temizle
         run: |
-          # 1. Klasör mimarisini tertemiz hazırla
+          # 1. Ana klasör mimarisini sıfırdan hazırlıyoruz
           mkdir -p app/src/main/java app/src/main/res
           echo "include ':app'" > settings.gradle
 
-          # 2. AndroidX desteğini aktif et
+          # 2. AndroidX ve Jetifier desteğini zorunlu olarak aktif ediyoruz
           cat << 'EOF' > gradle.properties
           android.useAndroidX=true
           android.enableJetifier=true
@@ -46,7 +46,7 @@ jobs:
           plugins { id 'com.android.application' version '8.2.2' apply false }
           EOF
 
-          # 5. App build.gradle (Satin alma kutuphanesiz temel yapı)
+          # 5. App build.gradle (Satın alma kütüphanesiz temiz iskelet)
           cat << 'EOF' > app/build.gradle
           plugins { id 'com.android.application' }
           android {
@@ -72,9 +72,10 @@ jobs:
           }
           EOF
 
-          # 6. Java kodlarini tasi ve premium moduna zorla
+          echo "=== 1. JAVA KODLARI PREMIUM MODUNA ALINIYOR ==="
           find . -maxdepth 5 -path "*/java/*" -o -path "*/sources/*" | while read -r dosya; do
               if [ -f "$dosya" ] && [[ "$dosya" == *java ]]; then
+                  # Satın alma tetikleyicilerini kod seviyesinde etkisizleştiriyoruz
                   sed -i 's/billingClient/System.out.println/g' "$dosya" || true
                   sed -i 's/launchBillingFlow/toString/g' "$dosya" || true
                   
@@ -87,21 +88,33 @@ jobs:
               fi
           done
 
-          # 7. Res (Arayüz) dosyalarını taşı
-          find . -maxdepth 5 -type d -name "res" | while read -r res_dizin; do
-              if [[ "$res_dizin" != *"app/src/main"* ]]; then
-                  cp -r "$res_dizin"/* app/src/main/res/ 2>/dev/null || true
+          echo "=== 2. TÜM GÖRSEL VE XML KAYNAKLARI FİLTRELENİYOR ==?="
+          # Depodaki tüm res (layout, drawable, values vb.) alt klasörlerini buluyoruz
+          find . -maxdepth 6 -type f -name "*.xml" ! -name "build.gradle" ! -name "AndroidManifest.xml" ! -path "*/app/*" | while read -r dosya; do
+              dosya_adi=$(basename "$dosya")
+              klasor_adi=$(basename "$(dirname "$dosya")")
+              
+              # Derlemeyi kitleyen '$' işaretli sahte sistem artıklarını KÖKTEN ENGELLİYORUZ
+              if [[ "$dosya_adi" == *\$* ]] || \
+                 [[ "$dosya_adi" == abc_* ]] || \
+                 [[ "$dosya_adi" == mtrl_* ]] || \
+                 [[ "$dosya_adi" == btn_* ]] || \
+                 [[ "$dosya_adi" == notification_* ]]; then
+                  echo "Bozuk sistem artığı temizlendi: $klasor_adi/$dosya_adi"
+              else
+                  # Hedef klasörü app/src/main/res altında oluştur (Örn: drawable, layout)
+                  mkdir -p "app/src/main/res/$klasor_adi"
+                  # İsmi küçük harfe çevirerek güvenle kopyala
+                  temiz_ad=$(echo "$dosya_adi" | tr 'A-Z' 'a-z')
+                  cp "$dosya" "app/src/main/res/$klasor_adi/$temiz_ad" || true
               fi
           done
 
-          # 8. MANİFEST ÇAKIŞMASINI ÇÖZME: Depodaki orijinal Manifest dosyasını bul ve temizce taşı
-          # Yapay zeka tarafından sonradan üretilen sahte manifestlerin oluşmasını tamamen engelliyoruz
+          echo "=== 3. MANİFEST DOSYASI YERLEŞTİRİLİYOR ==="
           MANIFEST_YOLU=$(find . -name "AndroidManifest.xml" ! -path "*/app/*" | head -n 1)
           if [ -n "$MANIFEST_YOLU" ]; then
               cp "$MANIFEST_YOLU" app/src/main/AndroidManifest.xml
-              echo "Orijinal Manifest başarıyla taşındı: $MANIFEST_YOLU"
           else
-              # Eğer hiç manifest yoksa, hata vermemesi için en temel şablonu oluştur
               cat << 'EOF' > app/src/main/AndroidManifest.xml
               <manifest xmlns:android="http://android.com">
                   <application android:allowBackup="true" android:label="Uygulama" android:theme="@style/Theme.AppCompat.Light.NoActionBar">
