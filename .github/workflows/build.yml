@@ -1,4 +1,4 @@
-name: Satin Almasiz Kesin APK Derleme ve Yukleme
+name: Standart APK Derleme ve Yukleme
 on: [push, workflow_dispatch]
 
 jobs:
@@ -17,13 +17,13 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Proje Iskeletini Kur ve Kaynakleri Temizle
+      - name: Proje Iskeletini Kur ve Kaynaklari Temizle
         run: |
           # 1. Ana klasör mimarisini sıfırdan hazırlıyoruz
           mkdir -p app/src/main/java app/src/main/res
           echo "include ':app'" > settings.gradle
 
-          # 2. AndroidX ve Jetifier desteğini zorunlu olarak aktif ediyoruz
+          # 2. AndroidX ve Jetifier desteğini aktif ediyoruz
           cat << 'EOF' > gradle.properties
           android.useAndroidX=true
           android.enableJetifier=true
@@ -46,7 +46,7 @@ jobs:
           plugins { id 'com.android.application' version '8.2.2' apply false }
           EOF
 
-          # 5. App build.gradle (Satın alma kütüphanesiz temiz iskelet)
+          # 5. App build.gradle (Standart kütüphane yapılandırması)
           cat << 'EOF' > app/build.gradle
           plugins { id 'com.android.application' }
           android {
@@ -69,16 +69,14 @@ jobs:
               implementation 'androidx.appcompat:appcompat:1.6.1'
               implementation 'com.google.android.material:material:1.11.0'
               implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+              // Çakışma üreten ExoPlayer dosyaları yerine resmi kütüphaneyi ekliyoruz
+              implementation 'com.google.android.exoplayer:exoplayer:2.19.1'
           }
           EOF
 
-          echo "=== 1. JAVA KODLARI PREMIUM MODUNA ALINIYOR ==="
+          echo "=== 1. JAVA KODLARI AKTARILIYOR ==="
           find . -maxdepth 5 -path "*/java/*" -o -path "*/sources/*" | while read -r dosya; do
               if [ -f "$dosya" ] && [[ "$dosya" == *java ]]; then
-                  # Satın alma tetikleyicilerini kod seviyesinde etkisizleştiriyoruz
-                  sed -i 's/billingClient/System.out.println/g' "$dosya" || true
-                  sed -i 's/launchBillingFlow/toString/g' "$dosya" || true
-                  
                   PAKET_SATIRI=$(grep -E "^package " "$dosya" | head -n 1 || true)
                   if [ -n "$PAKET_SATIRI" ]; then
                       PAKET_YOLU=$(echo "$PAKET_SATIRI" | sed 's/package //' | sed 's/;//' | tr '.' '/' | tr -d '\r' | xargs)
@@ -88,29 +86,32 @@ jobs:
               fi
           done
 
-          echo "=== 2. TÜM GÖRSEL VE XML KAYNAKLARI KATI FİLTREDEN GEÇİRİLİYOR ==="
+          echo "=== 2. TÜM GÖRSEL VE XML KAYNAKLARI TEMİZLENİYOR ==="
           find . -maxdepth 6 -type f -name "*.xml" ! -name "build.gradle" ! -name "AndroidManifest.xml" ! -path "*/app/*" | while read -r dosya; do
               dosya_adi=$(basename "$dosya")
               klasor_adi=$(basename "$(dirname "$dosya")")
               
-              # Geliştirilmiş Katı Filtre: Derlemeyi sabote eden tüm Google/Sistem kütüphane artıklarını engelle
+              # ExoPlayer ve Google kütüphanelerine ait çakışan sistem artıklarını engelliyoruz
               if [[ "$dosya_adi" == *\$* ]] || \
                  [[ "$dosya_adi" == abc_* ]] || \
                  [[ "$dosya_adi" == mtrl_* ]] || \
                  [[ "$dosya_adi" == btn_* ]] || \
+                 [[ "$dosya_adi" == exo_* ]] || \
                  [[ "$dosya_adi" == common_* ]] || \
                  [[ "$dosya_adi" == google_* ]] || \
                  [[ "$dosya_adi" == design_* ]] || \
                  [[ "$dosya_adi" == notification_* ]]; then
-                  echo "Zararlı kütüphane artığı elendi: $klasor_adi/$dosya_adi"
+                  echo "Kütüphane artığı elendi: $klasor_adi/$dosya_adi"
               else
                   mkdir -p "app/src/main/res/$klasor_adi"
                   temiz_ad=$(echo "$dosya_adi" | tr 'A-Z' 'a-z')
-                  cp "$dosya" "app/src/main/res/$klasor_adi/$temiz_ad" || true
+                  
+                  # BOM (Görünmez karakter) hatasını engellemek için dosyayı saf UTF-8 olarak temizleyip kopyalıyoruz
+                  sed '1s/^\xEF\xBB\xBF//' "$dosya" > "app/src/main/res/$klasor_adi/$temiz_ad" || true
               fi
           done
 
-          echo "=== 3. MANİFEST DOSYASI YERLEŞTİRİLİYOR ==="
+          echo "=== 3. MANİFEST YERLEŞTİRİLİYOR ==="
           MANIFEST_YOLU=$(find . -name "AndroidManifest.xml" ! -path "*/app/*" | head -n 1)
           if [ -n "$MANIFEST_YOLU" ]; then
               cp "$MANIFEST_YOLU" app/src/main/AndroidManifest.xml
@@ -135,7 +136,7 @@ jobs:
       - name: APK Dosyasini Bul ve Yukle
         uses: actions/upload-artifact@v4
         with:
-          name: Satin-Almasiz-Yeni-APK
+          name: Temiz-Debug-APK
           path: "**/build/outputs/apk/debug/*.apk"
           if-no-files-found: error
           
