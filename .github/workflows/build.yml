@@ -1,28 +1,45 @@
-name: Satin Almasiz Kesin APK Derleme
+name: Satin Almasiz APK Derleme ve Yukleme
 on: [push, workflow_dispatch]
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
     steps:
       - name: Depoyu Klonla
         uses: actions/checkout@v4
 
-      - name: Projeyi Satin Almasiz Iskelete Oturt
+      - name: Java 17 Kur
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Proje Iskeletini Kur ve Satin Almayi Iptal Et
         run: |
-          # 1. Standart klasörleri açıyoruz
+          # 1. Klasör mimarisini hazırla
           mkdir -p app/src/main/java app/src/main/res
-          
-          # 2. Ayar dosyasını yazıyoruz
           echo "include ':app'" > settings.gradle
 
-          # 3. Ana yönetim dosyasını yazıyoruz
+          # 2. Settings.gradle depo tanımları
+          cat << 'EOF' > settings.gradle
+          pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories { google(); mavenCentral() }
+          }
+          rootProject.name = "OtomatikAndroidProjesi"
+          include ':app'
+          EOF
+
+          # 3. Ana build.gradle
           cat << 'EOF' > build.gradle
           plugins { id 'com.android.application' version '8.2.2' apply false }
           EOF
 
-          # 4. KÖKTEN ÇÖZÜM: Buradaki listeye ASLA faturalandırma (billing) kütüphanesini EKLEMİYORUZ.
-          # Böylece uygulama içindeki satın alma kodları tamamen hükümsüz kalıyor.
+          # 4. App build.gradle (Satin alma kutuphanesini haric tutar)
           cat << 'EOF' > app/build.gradle
           plugins { id 'com.android.application' }
           android {
@@ -48,16 +65,12 @@ jobs:
           }
           EOF
 
-          echo "=== KODLAR PREMIUM MODUNA ALINIYOR ==="
-          # Java kaynak kodlarını tarayıp klasörlerine yerleştiriyoruz
+          # 5. Java kodlarini tasi ve premium moduna zorla
           find . -maxdepth 5 -path "*/java/*" -o -path "*/sources/*" | while read -r dosya; do
-              if [ -f "$dosya" ] && [[ "$dosya" == *.java ]]; then
-                  
-                  # KOD SEVİYESİNDE MÜDAHALE:
-                  # Kodların içinde geçen satın alma (billing) isteklerini veya kilit mekanizmalarını 
-                  # otomatik olarak etkisiz hale getirecek küçük kelime temizlikleri yapıyoruz.
-                  sed -i 's/billingClient/System.out.println/g' "$dosya" 2>/dev/null || true
-                  sed -i 's/launchBillingFlow/toString/g' "$dosya" 2>/dev/null || true
+              if [ -f "$dosya" ] && [[ "$dosya" == *java ]]; then
+                  # Kod icindeki satin alma kontrollerini etkisizlestir
+                  sed -i 's/billingClient/System.out.println/g' "$dosya" || true
+                  sed -i 's/launchBillingFlow/toString/g' "$dosya" || true
                   
                   PAKET_SATIRI=$(grep -E "^package " "$dosya" | head -n 1 || true)
                   if [ -n "$PAKET_SATIRI" ]; then
@@ -68,46 +81,19 @@ jobs:
               fi
           done
 
-          # Tasarımları taşıyoruz
-          find . -maxdepth 5 -type d -name "res" | while read -r res_dizin; do
-              cp -r "$res_dizin"/* app/src/main/res/ 2>/dev/null || true
-          done
+          # 6. Res ve Manifest dosyalarini tasi
+          find . -maxdepth 5 -type d -name "res" -exec cp -r {}/* app/src/main/res/ \; 2>/dev/null || true
+          MANIFEST_YOLU=$(find . -name "AndroidManifest.xml" ! -path "*/app/*" | head -n 1)
+          if [ -n "$MANIFEST_YOLU" ]; then cp "$MANIFEST_YOLU" app/src/main/AndroidManifest.xml; fi
 
-          # Arayüz tasarımlarındaki (XML) reklam veya satın alma buton alanlarını devre dışı bırakıyoruz
-          find app/src/main/res/layout/ -name "*.xml" | while read -r xml_dosya; do
-              sed -i 's/android:visibility="visible"/android:visibility="gone"/g' "$xml_dosya" 2>/dev/null || true
-          done
+      - name: APK Derlemesini Baslat
+        run: gradle assembleDebug --project-dir .
 
-          # Temel Manifest dosyasını yazıyoruz (Satın alma izinlerini tamamen sildik)
-          cat << 'EOF' > app/src/main/AndroidManifest.xml
-          <manifest xmlns:android="http://android.com">
-              <application
-                  android:allowBackup="true"
-                  android:label="Satın Almasız Uygulama"
-                  android:theme="@style/Theme.AppCompat.Light.NoActionBar">
-                  <activity android:name=".MainActivity" android:exported="true">
-                      <intent-filter>
-                          <action android:name="android.intent.action.MAIN" />
-                          <category android:name="android.intent.category.LAUNCHER" />
-                      </intent-filter>
-                  </activity>
-              </application>
-          </manifest>
-          EOF
-
-      - name: Java 17 Kur
-        uses: actions/setup-java@v4
-        with: { distribution: 'temurin', java-version: '17' }
-
-      - name: APK Derlemesini Başlat
-        run: |
-          # Projeyi hata vermeden doğrudan APK'ya dönüştürmeye zorluyoruz
-          gradle assembleDebug --project-dir . || echo "Derleme tamamlanamadı ama log üretildi."
-
-      - name: Satın Almasız APK'yı Dışarı Aktar
+      - name: APK Dosyasini Bul ve Yukle
         uses: actions/upload-artifact@v4
-        with: 
-          name: 'Satin-Almasiz-Yeni-APK'
-          path: 'app/build/outputs/apk/debug/*.apk'
-          if-no-files-found: warn
+        with:
+          name: Satin-Almasiz-Yeni-APK
+          # Wildcard kullanarak APK dosyasini nerede olursa olsun bulmasini sagliyoruz
+          path: "**/build/outputs/apk/debug/*.apk"
+          if-no-files-found: error
           
