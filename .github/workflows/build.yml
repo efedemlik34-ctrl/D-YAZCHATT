@@ -23,7 +23,14 @@ jobs:
           mkdir -p app/src/main/java app/src/main/res
           echo "include ':app'" > settings.gradle
 
-          # 2. Settings.gradle depo tanımları
+          # 2. KÖKTEN ÇÖZÜM: AndroidX desteğini aktif eden gradle.properties dosyasını sıfırdan yazıyoruz
+          cat << 'EOF' > gradle.properties
+          android.useAndroidX=true
+          android.enableJetifier=true
+          org.gradle.jvmargs=-Xmx2048m -XX:MaxMetaspaceSize=512m
+          EOF
+
+          # 3. Settings.gradle depo tanımları
           cat << 'EOF' > settings.gradle
           pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
           dependencyResolutionManagement {
@@ -34,12 +41,12 @@ jobs:
           include ':app'
           EOF
 
-          # 3. Ana build.gradle
+          # 4. Ana build.gradle
           cat << 'EOF' > build.gradle
           plugins { id 'com.android.application' version '8.2.2' apply false }
           EOF
 
-          # 4. App build.gradle (Satin alma kutuphanesini haric tutar)
+          # 5. App build.gradle (Satin alma kutuphanesini haric tutar)
           cat << 'EOF' > app/build.gradle
           plugins { id 'com.android.application' }
           android {
@@ -65,7 +72,7 @@ jobs:
           }
           EOF
 
-          # 5. Java kodlarini tasi ve premium moduna zorla
+          # 6. Java kodlarini tasi ve premium moduna zorla
           find . -maxdepth 5 -path "*/java/*" -o -path "*/sources/*" | while read -r dosya; do
               if [ -f "$dosya" ] && [[ "$dosya" == *java ]]; then
                   # Kod icindeki satin alma kontrollerini etkisizlestir
@@ -81,7 +88,7 @@ jobs:
               fi
           done
 
-          # 6. Res ve Manifest dosyalarini tasi
+          # 7. Res ve Manifest dosyalarini tasi
           find . -maxdepth 5 -type d -name "res" -exec cp -r {}/* app/src/main/res/ \; 2>/dev/null || true
           MANIFEST_YOLU=$(find . -name "AndroidManifest.xml" ! -path "*/app/*" | head -n 1)
           if [ -n "$MANIFEST_YOLU" ]; then cp "$MANIFEST_YOLU" app/src/main/AndroidManifest.xml; fi
@@ -93,7 +100,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Satin-Almasiz-Yeni-APK
-          # Wildcard kullanarak APK dosyasini nerede olursa olsun bulmasini sagliyoruz
           path: "**/build/outputs/apk/debug/*.apk"
           if-no-files-found: error
           
