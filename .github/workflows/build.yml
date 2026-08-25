@@ -17,7 +17,7 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Proje Iskeletini Kur ve Kaynaklari Temizle
+      - name: Proje Iskeletini Kur ve Kaynakleri Temizle
         run: |
           # 1. Ana klasör mimarisini sıfırdan hazırlıyoruz
           mkdir -p app/src/main/java app/src/main/res
@@ -88,23 +88,23 @@ jobs:
               fi
           done
 
-          echo "=== 2. TÜM GÖRSEL VE XML KAYNAKLARI FİLTRELENİYOR ==?="
-          # Depodaki tüm res (layout, drawable, values vb.) alt klasörlerini buluyoruz
+          echo "=== 2. TÜM GÖRSEL VE XML KAYNAKLARI KATI FİLTREDEN GEÇİRİLİYOR ==="
           find . -maxdepth 6 -type f -name "*.xml" ! -name "build.gradle" ! -name "AndroidManifest.xml" ! -path "*/app/*" | while read -r dosya; do
               dosya_adi=$(basename "$dosya")
               klasor_adi=$(basename "$(dirname "$dosya")")
               
-              # Derlemeyi kitleyen '$' işaretli sahte sistem artıklarını KÖKTEN ENGELLİYORUZ
+              # Geliştirilmiş Katı Filtre: Derlemeyi sabote eden tüm Google/Sistem kütüphane artıklarını engelle
               if [[ "$dosya_adi" == *\$* ]] || \
                  [[ "$dosya_adi" == abc_* ]] || \
                  [[ "$dosya_adi" == mtrl_* ]] || \
                  [[ "$dosya_adi" == btn_* ]] || \
+                 [[ "$dosya_adi" == common_* ]] || \
+                 [[ "$dosya_adi" == google_* ]] || \
+                 [[ "$dosya_adi" == design_* ]] || \
                  [[ "$dosya_adi" == notification_* ]]; then
-                  echo "Bozuk sistem artığı temizlendi: $klasor_adi/$dosya_adi"
+                  echo "Zararlı kütüphane artığı elendi: $klasor_adi/$dosya_adi"
               else
-                  # Hedef klasörü app/src/main/res altında oluştur (Örn: drawable, layout)
                   mkdir -p "app/src/main/res/$klasor_adi"
-                  # İsmi küçük harfe çevirerek güvenle kopyala
                   temiz_ad=$(echo "$dosya_adi" | tr 'A-Z' 'a-z')
                   cp "$dosya" "app/src/main/res/$klasor_adi/$temiz_ad" || true
               fi
