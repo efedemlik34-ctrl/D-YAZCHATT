@@ -1,4 +1,4 @@
-name: Standart APK Derleme ve Yukleme
+name: Bozuk Kaynaklari Temizle ve Standart APK Derle
 on: [push, workflow_dispatch]
 
 jobs:
@@ -17,13 +17,13 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Proje Iskeletini Kur ve Kaynaklari Temizle
+      - name: Proje Iskeletini Kur ve Bozuk XML Dosyalarini Otomatik Sil
         run: |
-          # 1. Ana klasör mimarisini sıfırdan hazırlıyoruz
+          # 1. Standart klasör mimarisini hazırlıyoruz
           mkdir -p app/src/main/java app/src/main/res
           echo "include ':app'" > settings.gradle
 
-          # 2. AndroidX ve Jetifier desteğini aktif ediyoruz
+          # 2. AndroidX yapılandırması
           cat << 'EOF' > gradle.properties
           android.useAndroidX=true
           android.enableJetifier=true
@@ -46,7 +46,7 @@ jobs:
           plugins { id 'com.android.application' version '8.2.2' apply false }
           EOF
 
-          # 5. App build.gradle (Kırık kaynakları tolere eden yapılandırma)
+          # 5. App build.gradle (Standart Android yapılandırması)
           cat << 'EOF' > app/build.gradle
           plugins { id 'com.android.application' }
           android {
@@ -59,29 +59,16 @@ jobs:
                   versionCode 1
                   versionName "1.0"
               }
-              buildTypes { 
-                  release { minifyEnabled false }
-                  debug {
-                      // KESİN ÇÖZÜM: Derleme esnasında kırık kaynak (XML) hataları çıkarsa 
-                      // derleyicinin çökmesini engeller ve APK üretimine zorla devam eder.
-                      crunchPngs false
-                  }
-              }
-              // Hatalı veya eksik arayüz kaynakları algılandığında derlemenin durmasını engelliyoruz
-              lintOptions {
-                  checkReleaseBuilds false
-                  abortOnError false
-              }
+              buildTypes { release { minifyEnabled false } }
           }
           dependencies {
               implementation 'androidx.appcompat:appcompat:1.6.1'
               implementation 'com.google.android.material:material:1.11.0'
               implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
-              implementation 'com.google.android.exoplayer:exoplayer:2.19.1'
           }
           EOF
 
-          echo "=== 1. JAVA KODLARI AKTARILIYOR ==="
+          # 6. Java kodlarını paket adlarına göre yerleştir
           find . -maxdepth 5 -path "*/java/*" -o -path "*/sources/*" | while read -r dosya; do
               if [ -f "$dosya" ] && [[ "$dosya" == *java ]]; then
                   PAKET_SATIRI=$(grep -E "^package " "$dosya" | head -n 1 || true)
@@ -93,57 +80,45 @@ jobs:
               fi
           done
 
-          echo "=== 2. TÜM XML DOSYALARI TEMİZLENEREK TAŞINIYOR ==="
-          find . -maxdepth 6 -type f -name "*.xml" ! -name "build.gradle" ! -name "AndroidManifest.xml" ! -path "*/app/*" | while read -r dosya; do
-              dosya_adi=$(basename "$dosya")
-              klasor_adi=$(basename "$(dirname "$dosya")")
-              
-              if [[ "$dosya_adi" == *\$* ]] || \
-                 [[ "$dosya_adi" == abc_* ]] || \
-                 [[ "$dosya_adi" == mtrl_* ]] || \
-                 [[ "$dosya_adi" == btn_* ]] || \
-                 [[ "$dosya_adi" == exo_* ]] || \
-                 [[ "$dosya_adi" == common_* ]] || \
-                 [[ "$dosya_adi" == google_* ]] || \
-                 [[ "$dosya_adi" == design_* ]] || \
-                 [[ "$dosya_adi" == notification_* ]]; then
-                  echo "Gereksiz kütüphane artığı elendi: $klasor_adi/$dosya_adi"
-              else
-                  mkdir -p "app/src/main/res/$klasor_adi"
-                  temiz_ad=$(echo "$dosya_adi" | tr 'A-Z' 'a-z')
-                  # Bozuk karakterleri ayıklayarak kopyalama işlemi
-                  iconv -f UTF-8 -t UTF-8//IGNORE -c "$dosya" | sed '1s/^\xEF\xBB\xBF//' > "app/src/main/res/$klasor_adi/$temiz_ad" || true
+          # 7. Res klasörlerini taşı
+          find . -maxdepth 5 -type d -name "res" | while read -r res_dizin; do
+              if [[ "$res_dizin" != *"app/src/main"* ]]; then
+                  cp -r "$res_dizin"/* app/src/main/res/ 2>/dev/null || true
               fi
           done
 
-          echo "=== 3. MANİFEST DOSYASI YERLEŞTİRİLİYOR ==="
+          echo "=== AKILLI XML TARAMA VE TEMİZLEME MOTORU BAŞLADI ==="
+          # Res klasöründeki tüm XML dosyalarını tek tek analiz ediyoruz
+          find app/src/main/res/ -type f -name "*.xml" | while read -r xml_dosya; do
+              # Dosyanın başındaki BOM veya kırık karakterleri temizleyip geçici dosyaya yazıyoruz
+              iconv -f UTF-8 -t UTF-8//IGNORE -c "$xml_dosya" | sed '1s/^\xEF\xBB\xBF//' > temp.xml || true
+              
+              # Dosyanın ilk satırını okuyoruz
+              ILK_SATIR=$(head -n 1 temp.xml | xargs || true)
+              
+              # KRİTİK KONTROL: Eğer dosya geçerli bir XML başlangıcı (<) içermiyorsa 
+              # derleyiciyi çökertecek demektir. Bu dosyayı otomatik olarak siliyoruz.
+              if [[ "$ILK_SATIR" != *"<"* ]]; then
+                  echo "DOKUMAN FORMATI BOZUK - OTOMATIK SILINDI: $xml_dosya"
+                  rm "$xml_dosya"
+              else
+                  # Dosya sağlamsa temizlenmiş halini üzerine yazıyoruz
+                  mv temp.xml "$xml_dosya"
+              fi
+              rm -f temp.xml 2>/dev/null
+          done
+
+          # 8. Orijinal Manifest dosyasını taşı
           MANIFEST_YOLU=$(find . -name "AndroidManifest.xml" ! -path "*/app/*" | head -n 1)
-          if [ -n "$MANIFEST_YOLU" ]; then
-              cp "$MANIFEST_YOLU" app/src/main/AndroidManifest.xml
-          else
-              cat << 'EOF' > app/src/main/AndroidManifest.xml
-              <manifest xmlns:android="http://android.com">
-                  <application android:allowBackup="true" android:label="Uygulama" android:theme="@style/Theme.AppCompat.Light.NoActionBar">
-                      <activity android:name="com.example.otomatikuygulama.MainActivity" android:exported="true">
-                          <intent-filter>
-                              <action android:name="android.intent.action.MAIN" />
-                              <category android:name="android.intent.category.LAUNCHER" />
-                          </intent-filter>
-                      </activity>
-                  </application>
-              </manifest>
-          EOF
-          fi
+          if [ -n "$MANIFEST_YOLU" ]; then cp "$MANIFEST_YOLU" app/src/main/AndroidManifest.xml; fi
 
       - name: APK Derlemesini Baslat
-        run: |
-          # abortOnError kapalı şekilde ana derleme sürecini başlatıyoruz
-          gradle assembleDebug --project-dir . || echo "Derleme adımı tamamlandı."
+        run: gradle assembleDebug --project-dir .
 
-      - name: APK Dosyasini Bul ve Yukle
+      - name: Temizlenmis APK'yi Yukle
         uses: actions/upload-artifact@v4
         with:
-          name: Temiz-Debug-APK
+          name: Temizlenmis-Uygulama-APK
           path: "**/build/outputs/apk/debug/*.apk"
-          if-no-files-found: warn
+          if-no-files-found: error
           
