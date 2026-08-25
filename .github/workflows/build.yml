@@ -1,4 +1,4 @@
-name: Standart APK Derleme ve Yukleme
+name: Satin Almasiz Kesin APK Derleme ve Yukleme
 on: [push, workflow_dispatch]
 
 jobs:
@@ -46,7 +46,7 @@ jobs:
           plugins { id 'com.android.application' version '8.2.2' apply false }
           EOF
 
-          # 5. App build.gradle (Standart kütüphane yapılandırması)
+          # 5. App build.gradle (Satın alma kütüphanesiz temiz iskelet)
           cat << 'EOF' > app/build.gradle
           plugins { id 'com.android.application' }
           android {
@@ -69,8 +69,6 @@ jobs:
               implementation 'androidx.appcompat:appcompat:1.6.1'
               implementation 'com.google.android.material:material:1.11.0'
               implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
-              // Çakışma üreten ExoPlayer dosyaları yerine resmi kütüphaneyi ekliyoruz
-              implementation 'com.google.android.exoplayer:exoplayer:2.19.1'
           }
           EOF
 
@@ -86,12 +84,12 @@ jobs:
               fi
           done
 
-          echo "=== 2. TÜM GÖRSEL VE XML KAYNAKLARI TEMİZLENİYOR ==="
+          echo "=== 2. TÜM XML DOSYALARI SAF UTF-8 FORMATINA ZORLANIYOR ==="
           find . -maxdepth 6 -type f -name "*.xml" ! -name "build.gradle" ! -name "AndroidManifest.xml" ! -path "*/app/*" | while read -r dosya; do
               dosya_adi=$(basename "$dosya")
               klasor_adi=$(basename "$(dirname "$dosya")")
               
-              # ExoPlayer ve Google kütüphanelerine ait çakışan sistem artıklarını engelliyoruz
+              # Derlemeyi sabote eden standart kütüphane artıklarını engelliyoruz
               if [[ "$dosya_adi" == *\$* ]] || \
                  [[ "$dosya_adi" == abc_* ]] || \
                  [[ "$dosya_adi" == mtrl_* ]] || \
@@ -101,17 +99,17 @@ jobs:
                  [[ "$dosya_adi" == google_* ]] || \
                  [[ "$dosya_adi" == design_* ]] || \
                  [[ "$dosya_adi" == notification_* ]]; then
-                  echo "Kütüphane artığı elendi: $klasor_adi/$dosya_adi"
+                  echo "Gereksiz kütüphane artığı elendi: $klasor_adi/$dosya_adi"
               else
                   mkdir -p "app/src/main/res/$klasor_adi"
                   temiz_ad=$(echo "$dosya_adi" | tr 'A-Z' 'a-z')
                   
-                  # BOM (Görünmez karakter) hatasını engellemek için dosyayı saf UTF-8 olarak temizleyip kopyalıyoruz
-                  sed '1s/^\xEF\xBB\xBF//' "$dosya" > "app/src/main/res/$klasor_adi/$temiz_ad" || true
+                  # KÖKTEN ÇÖZÜM: iconv kullanarak geçersiz baytları (-c) temizliyor ve saf UTF-8'e çeviriyoruz
+                  iconv -f UTF-8 -t UTF-8//IGNORE -c "$dosya" | sed '1s/^\xEF\xBB\xBF//' > "app/src/main/res/$klasor_adi/$temiz_ad" || true
               fi
           done
 
-          echo "=== 3. MANİFEST YERLEŞTİRİLİYOR ==="
+          echo "=== 3. MANİFEST DOSYASI YERLEŞTİRİLİYOR ==="
           MANIFEST_YOLU=$(find . -name "AndroidManifest.xml" ! -path "*/app/*" | head -n 1)
           if [ -n "$MANIFEST_YOLU" ]; then
               cp "$MANIFEST_YOLU" app/src/main/AndroidManifest.xml
@@ -136,7 +134,7 @@ jobs:
       - name: APK Dosyasini Bul ve Yukle
         uses: actions/upload-artifact@v4
         with:
-          name: Temiz-Debug-APK
+          name: Satin-Almasiz-Yeni-APK
           path: "**/build/outputs/apk/debug/*.apk"
           if-no-files-found: error
           
